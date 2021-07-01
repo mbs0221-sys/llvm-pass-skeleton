@@ -1,4 +1,8 @@
 #include <stdio.h>
+#include <riscv-pk/encoding.h>
+
+
 void logop(int i) {
-    printf("computed: %i\n", i);
+    int num;
+    printf("logop: %d\n", i);
 }
