@@ -30,13 +30,16 @@ namespace
         Type *retType = Type::getVoidTy(Ctx);
         FunctionType *logFuncType = FunctionType::get(retType, paramTypes, false);       
         M->getOrInsertFunction("logop", logFuncType);
-
-      }      
+      }
       {
-        std::vector<Type *> paramTypes = { Type::getInt8PtrTy(Ctx), Type::getInt8PtrTy(Ctx)};
         Type *retType = Type::getVoidTy(Ctx);
-        FunctionType *logFuncType = FunctionType::get(retType, paramTypes, false);       
-        M->getOrInsertFunction("wrapper", logFuncType);
+        FunctionType *logFuncType = FunctionType::get(retType, false);       
+        M->getOrInsertFunction("bcs_init", logFuncType);
+      }
+      {
+        Type *retType = Type::getVoidTy(Ctx);
+        FunctionType *logFuncType = FunctionType::get(retType, false);       
+        M->getOrInsertFunction("bcs_checking", logFuncType);
       }
       {
         Type *retType = Type::getVoidTy(Ctx);
@@ -62,67 +65,76 @@ namespace
       }
     }
 
-    virtual bool runOnFunction(Function &F) {
-      declareFuncs(F);
-
-      Module *M = F.getParent();
-
-      FunctionCallee logFunc = M->getFunction("logop");
-      FunctionCallee readTimeFunc = M->getFunction("read_time");
-      FunctionCallee wrapper = M->getFunction("wrapper");
-
-      std::vector<string> funcs = { "printf" };
-      std::vector<string> calc_func = {"add", "sub", "mul", "divide"};
-
-      bool modified = false;
-
-      if (find(calc_func, F.getName()) != calc_func.end())
-      {
+    void insert_func(Function &F, FunctionCallee callee) {
         BasicBlock &entryBlock = F.getEntryBlock();
         Instruction *firstInst = entryBlock.getFirstNonPHI();
         IRBuilder<> IRB(firstInst);
 
-        errs() << "Function " << wrapper.getCallee()->getName();
+        errs() << "Function " << callee.getCallee()->getName();
         errs() << " is inserted at the front of " << F.getName() << "\n";
 
         // Insert *after* `op`.
         IRB.SetInsertPoint(firstInst);
 
         // Insert a call to our function.
-        Value *callee;
-        Value *func;
-        Value *args[] = { callee, func };
-        IRB.CreateCall(wrapper);
-        // IRB.CreateLoad(Ptr, )
+        IRB.CreateCall(callee);
+    }
 
+    bool checking_before_call(Instruction &I, FunctionCallee callee, std::vector<string> &funcs) {
+      bool modified = false;
+      // is a CallInst
+      if (auto *CI = dyn_cast<CallInst>(&I)) {
+        // has function called
+        if (auto *f = CI->getCalledFunction()) {
+          // is to be inserted before
+          if (find(funcs, f->getName()) != funcs.end()) {
+
+            errs() << "Function " << callee.getCallee()->getName();
+            errs() << " is inserted before " << f->getName() << "\n";
+
+            // Insert *after* `op`.
+            IRBuilder<> IRB(CI);
+            IRB.SetInsertPoint(&I);
+
+            // Insert a call to our function.
+            // Value* args[] = {op};
+
+            IRB.CreateCall(callee);
+
+            modified |= true;
+          }
+        }
+      }
+
+      return modified;
+    }
+
+    virtual bool runOnFunction(Function &F) {
+      declareFuncs(F);
+
+      Module *M = F.getParent();
+
+      bool modified = false;
+
+      // call bcs_init before execution of main
+      if (F.getName() == "main") {
+        insert_func(F, M->getFunction("bcs_init"));
         modified |= true;
       }
 
-      for (auto &B : F)
-      {
+      // call bcs_checking before execution of calc_func
+      std::vector<string> calc_func = {"add", "sub", "mul", "divide"};
+      if (find(calc_func, F.getName()) != calc_func.end()) {
+        insert_func(F, M->getFunction("bcs_checking"));
+        modified |= true;
+      }
+ 
+      // call read_time before printf
+      std::vector<string> funcs = { "printf" };
+      for (auto &B : F) {
         for (auto &I : B) {
           branches(I);
-          if (auto *CI = dyn_cast<CallInst>(&I)) {
-            if (auto *f = CI->getCalledFunction()) {
-              if (find(funcs, f->getName()) != funcs.end())
-              {
-                errs() << "Function " << readTimeFunc.getCallee()->getName();
-                errs() << " is inserted before " << f->getName() << "\n";
-
-                // Insert *after* `op`.
-                IRBuilder<> IRB(CI);
-                // builder.SetInsertPoint(&B, builder.GetInsertPoint());
-                IRB.SetInsertPoint(&I);
-
-                // Insert a call to our function.
-                // Value* args[] = {op};
-
-                IRB.CreateCall(readTimeFunc);
-
-                modified |= true;
-              }
-            }
-          }
+          checking_before_call(I, M->getFunction("read_time"), funcs);
         }
       }
 
