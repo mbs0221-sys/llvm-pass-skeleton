@@ -37,7 +37,7 @@ void read_time() {
     printf("[%08d] ", t);
 }
 
-void wrapper(char *callee, char *func) {
+void wrapper() {
   
-  printf("Function %s is called at the beginning of %s\n", callee, func);
+  printf("This wrapper is called.\n");
 }
